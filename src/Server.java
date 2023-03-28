@@ -4,7 +4,8 @@ import java.sql.*;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import org.json.*;;
+import org.json.*;
+import java.nio.ByteBuffer;
 
 public class AuctionsLabHttpServer {
     final static String JDBC_DRIVER = "com.mysql.cj.jdbc.Driver";
@@ -43,8 +44,9 @@ public class AuctionsLabHttpServer {
         }
     }
     
-    public static void OffertaOggetto()
+    public static int OffertaOggetto()
     {
+        int offer;
         String IndirizzoDelGruppo;
         try {
 			InetAddress group = InetAddress.getByName(IndirizzoDelGruppo);
@@ -52,10 +54,10 @@ public class AuctionsLabHttpServer {
 			MulticastSocket multicast = new MulticastSocket();
 			
 			multicast.setSoTimeout(100000);
-			
+            
 			byte[] receiveBytes = new byte[1024];
 			
-			String msg = "hai vinto l'asta";
+			String msg = "Offerta registrata";
 			
 			DatagramPacket offerta = new DatagramPacket(receiveBytes, receiveBytes.length);
 			
@@ -65,16 +67,18 @@ public class AuctionsLabHttpServer {
 			
 			int length = offerta.getLength();
 			
-			String received = new String(data, 0, length);
+			ByteBuffer wrapped = ByteBuffer.wrap(data);
+            offer = wrapped.getInt(); 
 			
-			DatagramPacket packet = new DatagramPacket(msg.getBytes(), msg.length(), group, 3456);
+			DatagramPacket packet = new DatagramPacket(msg.getBytes(), msg.length(), offerta.getAddress(), offerta.getPort());
 			
 			multicast.send(packet);
-			
+            
 		} catch (IOException e) {
 		
 			e.printStackTrace();
 		}
+        return offer;
     }
     private static void handleRequest(Socket clientSocket) throws Exception {
         InputStream input = clientSocket.getInputStream();
