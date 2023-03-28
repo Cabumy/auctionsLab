@@ -42,8 +42,10 @@ public class AuctionsLabHttpServer {
             e.printStackTrace();
         }
     }
-    public static void Udprequest(String IndirizzoDelGruppo)
+    
+    public static void OffertaOggetto()
     {
+        String IndirizzoDelGruppo;
         try {
 			InetAddress group = InetAddress.getByName(IndirizzoDelGruppo);
 			
@@ -69,8 +71,6 @@ public class AuctionsLabHttpServer {
 			
 			multicast.send(packet);
 			
-			multicast.close();
-		
 		} catch (IOException e) {
 		
 			e.printStackTrace();
