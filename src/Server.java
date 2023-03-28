@@ -1,111 +1,276 @@
-import java.io.BufferedReader;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Scanner;
+import java.io.*;
+import java.net.*;
+import java.sql.*;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
+import org.json.*;;
 
+public class AuctionsLabHttpServer {
+    final static String JDBC_DRIVER = "com.mysql.cj.jdbc.Driver";
+    final static String DATABASE = "auctions";
+    final static String DB_URL = "jdbc:mysql://localhost:3306/" + DATABASE;
+    final static String USER = "root";
+    final static String PASS = "RISOSCOTTI";
+    final static int PORT = 9090;
+    static Connection sqlConnection = null;
+    static Statement statement = null;
 
-public class Server {
-    public static <JSONArray> JSONArray ShowAsta(String oggetto)
-    {
-        ArrayList<String> asta = new ArrayList<String>();
-        Connection con;
-        String url = "jdbc:mysql://localhost:3306";
-        final String schema = "asta";
-        String user = "root";
-        String password ="Cabumy26#";
-        try {
-            con = DriverManager.getConnection(url+"/"+schema,user, password);
-            
-            System.out.println("connessione effettuata");
-            
-            Statement stat = con.createStatement();
-            
-            ResultSet rs = stat.executeQuery("Select * from astab where oggetto="+oggetto);
-            ResultSetMetaData md = rs.getMetaData();
-            int numCols = md.getColumnCount();
-            List<Object> colNames = IntStream.range(0, numCols)
-                      .mapToObj(i -> {
-                          try {
-                              return md.getColumnName(i + 1);
-                          } catch (SQLException e) {
-                              e.printStackTrace();
-                              return "?";
-                          }
-                      })
-                      .collect(Collectors.toList());
-            
-            JSONArray result = new JSONArray();
-            while (rs.next()) {
-                JSONObject row = new JSONObject();
-                colNames.forEach(cn -> {
-                        row.put(cn, rs.getObject(cn));
-                    
-                });
-                result.add(row);
+    public static void main(String[] args) throws Exception {
+        try (ServerSocket serverSocket = new ServerSocket(PORT);) {
+            amogus();
+            System.out.println("Connecting to Database...");
+            sqlConnection = DriverManager.getConnection(DB_URL, USER, PASS);
+            System.out.println("Connection with " + DB_URL + " Established");
+            statement = sqlConnection.createStatement();
+            System.out.println("Initialized SQL Statement");
+            System.out.println("Server started at localhost:" + PORT);
+            while (true) {
+                Socket clientSocket = serverSocket.accept();
+                System.out.println("Accepted connection from " + clientSocket.getInetAddress());
+                // Runnable as Lambda
+                new Thread(() -> {
+                    try {
+                        handleRequest(clientSocket);
+                        UdpRequest();
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }).start();
             }
-            
-        } catch (SQLException e1) {
-            e1.printStackTrace();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-        return result;
-	public static void main(String[] args) {
-		ArrayList<String> asta = new ArrayList<String>();
-		Scanner myObj = new Scanner(System.in);
-		System.out.println("Inserisci");
-		String oggetto ="'"+myObj.nextLine()+"'";
-		asta = ShowAsta(oggetto);
-		try {
-			// 1 - pubblicare una ServerSocket, decidendo una porta NON RISERVATA
-			ServerSocket serverSocket = new ServerSocket(8080);
-
-			// 2 - mettersi in attesa di ricevere richieste dai client, ed accettarle
-			// METODO BLOCCANTE
+    }
+    public static void Udprequest(String IndirizzoDelGruppo)
+    {
+        try {
+			InetAddress group = InetAddress.getByName(IndirizzoDelGruppo);
 			
-			System.out.println("Sono in attesa di accetare un client");
+			MulticastSocket multicast = new MulticastSocket();
 			
-			Socket comunicationSocketFromServer = serverSocket.accept();
-
-			System.out.println("Client accettato");
-
-			InputStream inputStreamServer = comunicationSocketFromServer.getInputStream();
-
-			BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(inputStreamServer));
-
-			System.out.println("Sono in attesa di un messaggio dal client");
-
-			// METODO BLOCCANTE
-			String messaggio = bufferedReader.readLine();
+			multicast.setSoTimeout(100000);
 			
-			System.out.println("Ricevuto dal client: " + messaggio);
+			byte[] receiveBytes = new byte[1024];
 			
-			OutputStream outputStreamServer = comunicationSocketFromServer.getOutputStream();
-
-			DataOutputStream dataOutputStream = new DataOutputStream(outputStreamServer);
+			String msg = "hai vinto l'asta";
 			
-			String risposta = messaggio;
-			dataOutputStream.writeBytes(risposta);
+			DatagramPacket offerta = new DatagramPacket(receiveBytes, receiveBytes.length);
 			
+			multicast.receive(offerta);
 			
-
+			byte[] data = offerta.getData();
+			
+			int length = offerta.getLength();
+			
+			String received = new String(data, 0, length);
+			
+			DatagramPacket packet = new DatagramPacket(msg.getBytes(), msg.length(), group, 3456);
+			
+			multicast.send(packet);
+			
+			multicast.close();
+		
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
+		
 			e.printStackTrace();
 		}
     }
+    private static void handleRequest(Socket clientSocket) throws Exception {
+        InputStream input = clientSocket.getInputStream();
+        OutputStream output = clientSocket.getOutputStream();
+
+        BufferedReader reader = new BufferedReader(new InputStreamReader(input));
+        String line = reader.readLine();
+        if (line != null) {
+            String[] tokens = line.split(" ");
+            if (tokens.length >= 2) {
+                String method = tokens[0];
+                String path = tokens[1];
+
+                String body = parseRequestBody(reader);
+                System.out.println(line + " body:{" + body + "}");
+                if (method.equalsIgnoreCase("GET")) {
+                    handleGet(path, output);
+                } else if (method.equalsIgnoreCase("POST")) {
+                    handlePost(path, body, output);
+                } else {
+                    sendNotFound(output);
+                }
+            } else {
+                sendNotFound(output);
+            }
+        } else {
+            sendNotFound(output);
+        }
+
+        output.close();
+        input.close();
+        clientSocket.close();
+    }
+
+    private static void handleGet(String path, OutputStream output) throws Exception {
+        if (path.equals("/")) {
+            ResultSet rs = statement.executeQuery("Select * from items");
+            String response = "{\"message\": \"" + parseResultSet(rs).toString() + "\"}";
+            String headers = "HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: application/json\r\n" +
+                    "Access-Control-Allow-Origin: *\r\n" +
+                    "Content-Length: " + response.length() + "\r\n" +
+                    "\r\n";
+            output.write(headers.getBytes());
+            output.write(response.getBytes());
+        }
+
+        else {
+            sendNotFound(output);
+        }
+    }
+
+    private static void handlePost(String path, String body, OutputStream output) throws Exception {
+        if (path.equals("/")) {
+            String response = "{\"message\": \"" + body + "\"}";
+            String headers = "HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: application/json\r\n" +
+                    "Access-Control-Allow-Origin: *\r\n" +
+                    "Content-Length: " + response.length() + "\r\n" +
+                    "\r\n";
+            output.write(headers.getBytes());
+            output.write(response.getBytes());
+        } else if (path.equals("/getbyname")) {
+            String query = "";
+            if(isNumeric(body)){
+                query = "Select * from items where ItemID ="+body;
+            }else{
+                query = "Select * from items where Item_Name like '%"+body+"%'";
+            }
+            ResultSet rs = statement.executeQuery(query);
+            String response = "{\"message\": \"" + parseResultSet(rs).toString() + "\"}";
+            String headers = "HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: application/json\r\n" +
+                    "Access-Control-Allow-Origin: *\r\n" +
+                    "Content-Length: " + response.length() + "\r\n" +
+                    "\r\n";
+            output.write(headers.getBytes());
+            output.write(response.getBytes());
+        } else if (path.equals("/offerPage")) {
+            if (!body.isEmpty()) {
+                ResultSet rs = statement.executeQuery("Select * from items where ItemID = " + body);
+                String response = "{\"message\": \"" + parseResultSet(rs).toString() + "\"}";
+                String headers = "HTTP/1.1 200 OK\r\n" +
+                        "Content-Type: application/json\r\n" +
+                        "Access-Control-Allow-Origin: *\r\n" +
+                        "Content-Length: " + response.length() + "\r\n" +
+                        "\r\n";
+                output.write(headers.getBytes());
+                output.write(response.getBytes());
+            } else {
+                sendNotFound(output);
+            }
+        } else {
+            sendNotFound(output);
+        }
+    }
+
+    private static void sendNotFound(OutputStream output) throws Exception {
+        String response = "404 Not Found";
+        String headers = "HTTP/1.1 404 Not Found\r\n" +
+                "Content-Type: text/plain\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
+                "Content-Length: " + response.length() + "\r\n" +
+                "\r\n";
+        output.write(headers.getBytes());
+        output.write(response.getBytes());
+    }
+
+    private static String parseRequestBody(BufferedReader reader) throws Exception {
+        // headers
+        Map<String, String> headers = new HashMap<>();
+        String headerLine;
+        while ((headerLine = reader.readLine()) != null && !headerLine.isEmpty()) {
+            String[] headerTokens = headerLine.split(":");
+            if (headerTokens.length == 2) {
+                headers.put(headerTokens[0].trim(), headerTokens[1].trim());
+            }
+        }
+        // body
+        int contentLength = Integer.parseInt(headers.getOrDefault("Content-Length", "0"));
+        char[] buffer = new char[1024];
+        StringBuilder bodyBuilder = new StringBuilder();
+        int bytesRead;
+        while ((bytesRead = reader.read(buffer, 0, Math.min(buffer.length, contentLength))) > 0) {
+            bodyBuilder.append(buffer, 0, bytesRead);
+            contentLength -= bytesRead;
+            if (contentLength <= 0) {
+                break;
+            }
+        }
+        String body = bodyBuilder.toString();
+        return body;
+    }
+
+    private static JSONArray parseResultSet(ResultSet resultSet) throws SQLException {
+        ResultSetMetaData md = resultSet.getMetaData();
+        int numCols = md.getColumnCount();
+        List<String> colNames = IntStream.range(0, numCols)
+                .mapToObj(i -> {
+                    try {
+                        return md.getColumnName(i + 1);
+                    } catch (SQLException e) {
+                        e.printStackTrace();
+                        return "?";
+                    }
+                })
+                .collect(Collectors.toList());
+
+        JSONArray result = new JSONArray();
+        while (resultSet.next()) {
+            JSONObject row = new JSONObject();
+            colNames.forEach(cn -> {
+                try {
+                    row.put(cn, resultSet.getObject(cn));
+                } catch (JSONException | SQLException e) {
+                    e.printStackTrace();
+                }
+            });
+            result.put(row);
+        }
+        return result;
+    }
+
+    private static void amogus() {
+        System.out.println("-----------------⣠⣤⣤⣤⣤⣤⣤⣤⣤⣄⡀---------");
+        System.out.println("-------------⢀⣴⣿⡿⠛⠉⠙⠛⠛⠛⠛⠻⢿⣿⣷⣤--------");
+        System.out.println("-------------⣼⣿⠋-------⢀⣀⣀⠈⢻⣿⣿⡄------");
+        System.out.println("------------⣸⣿⡏---⣠⣶⣾⣿⣿⣿⠿⠿⠿⢿⣿⣿⣿⣄-----");
+        System.out.println("------------⣿⣿⠁--⢰⣿⣿⣯⠁-------⠈⠙⢿⣷⡄---");
+        System.out.println("------⣀⣤⣴⣶⣶⣿⡟---⢸⣿⣿⣿⣆----------⣿⣷----");
+        System.out.println("-----⢰⣿⡟⠋⠉⣹⣿⡇---⠘⣿⣿⣿⣿⣷⣦⣤⣤⣤⣶⣶⣶⣶⣿??----");
+        System.out.println("-----⢸⣿⡇--⣿⣿⡇----⠹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿??----");
+        System.out.println("-----⣸⣿⡇--⣿⣿⡇-----⠉⠻⠿⣿⣿⣿⣿⡿⠿⠿⠛⢻???----");
+        System.out.println("-----⣿⣿⠁--⣿⣿⡇-----------------⢸⣿⣧----");
+        System.out.println("-----⣿⣿---⣿⣿⡇-----------------⢸⣿⣿----");
+        System.out.println("-----⣿⣿---⣿⣿⡇-----------------⢸⣿⣿----");
+        System.out.println("-----⢿⣿⡆--⣿⣿⡇-----------------⢸⣿⡇----");
+        System.out.println("-----⠸⣿⣧⡀-⣿⣿⡇-----------------⣿⣿⠃----");
+        System.out.println("------⠛⢿⣿⣿⣿⣿⣇-----⣰⣿⣿⣷⣶⣶⣶⣶⢠⣿⣿????----");
+        System.out.println("------------⣿⣿------⣿⣿⡇-⣽⣿⡏--⢸⣿?-----");
+        System.out.println("------------⣿⣿------⣿⣿⡇-⢹⣿⡆---⣸⣿⠇----");
+        System.out.println("------------⢿⣿⣦⣄⣀⣠⣴⣿⣿⠁--⠻⣿⣿⣿⣿⡿??-----");
+        System.out.println("------------⠈⠛⠻⠿⠿⠿⠿⠋⠁----------------");
+
+    }
+
+    public static boolean isNumeric(String strNum) {
+        if (strNum == null) {
+            return false;
+        }
+        try {
+            Double.parseDouble(strNum);
+        } catch (NumberFormatException nfe) {
+            return false;
+        }
+        return true;
+    }
+    
 }
