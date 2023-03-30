@@ -1,39 +1,45 @@
-import java.io.*;
-import java.net.*;
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.StringReader;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.sql.*;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import org.json.*;
-import java.nio.ByteBuffer;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
-public class AuctionsLabHttpServer {
-    final static String JDBC_DRIVER = "com.mysql.cj.jdbc.Driver";
-    final static String DATABASE = "auctions";
-    final static String DB_URL = "jdbc:mysql://localhost:3306/" + DATABASE;
-    final static String USER = "root";
-    final static String PASS = "RISOSCOTTI";
-    final static int PORT = 9090;
-    static Connection sqlConnection = null;
+import com.mysql.cj.xdevapi.JsonParser;
+
+public class TCPServer {
+    private JSONObject jsonObject;
+
+
+    static ServerSocket serverSocket = null;
     static Statement statement = null;
 
-    public static void main(String[] args) throws Exception {
-        try (ServerSocket serverSocket = new ServerSocket(PORT);) {
-            amogus();
-            System.out.println("Connecting to Database...");
-            sqlConnection = DriverManager.getConnection(DB_URL, USER, PASS);
-            System.out.println("Connection with " + DB_URL + " Established");
-            statement = sqlConnection.createStatement();
-            System.out.println("Initialized SQL Statement");
-            System.out.println("Server started at localhost:" + PORT);
+    public TCPServer(int port, Statement sqlstatement) throws Exception {
+        try {
+            statement = sqlstatement;
+            serverSocket = new ServerSocket(port);
+            System.out.println(">TCP Server started at localhost:" + port + "\n");
             while (true) {
                 Socket clientSocket = serverSocket.accept();
                 System.out.println("Accepted connection from " + clientSocket.getInetAddress());
-                // Runnable as Lambda
+                // TCP Thread, Runnable as Lambda
                 new Thread(() -> {
                     try {
                         handleRequest(clientSocket);
-                        UdpRequest();
+
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
@@ -42,44 +48,29 @@ public class AuctionsLabHttpServer {
         } catch (Exception e) {
             e.printStackTrace();
         }
+
     }
     
-    public static int OffertaOggetto()
+    public void jsonToObj(JSONArray Ojson)
     {
-        int offer;
-        String IndirizzoDelGruppo;
-        try {
-			InetAddress group = InetAddress.getByName(IndirizzoDelGruppo);
-			
-			MulticastSocket multicast = new MulticastSocket();
-			
-			multicast.setSoTimeout(100000);
-            
-			byte[] receiveBytes = new byte[1024];
-			
-			String msg = "Offerta registrata";
-			
-			DatagramPacket offerta = new DatagramPacket(receiveBytes, receiveBytes.length);
-			
-			multicast.receive(offerta);
-			
-			byte[] data = offerta.getData();
-			
-			int length = offerta.getLength();
-			
-			ByteBuffer wrapped = ByteBuffer.wrap(data);
-            offer = wrapped.getInt(); 
-			
-			DatagramPacket packet = new DatagramPacket(msg.getBytes(), msg.length(), offerta.getAddress(), offerta.getPort());
-			
-			multicast.send(packet);
-            
-		} catch (IOException e) {
-		
-			e.printStackTrace();
-		}
-        return offer;
+        JsonParser parser = new JsonParser();
+        Object obj = parser.parseArray(new JSONArray(Ojson));
+        this.jsonObject = (JSONObject)obj;
     }
+    public List<String> getRoba()
+    {
+        List<String> roba = new ArrayList<>();
+        Iterator iter = this.jsonObject.keySet().iterator();
+        while(iter.hasNext())
+        {
+            String robas = (String) iter.next();
+            roba.add(robas);
+        }
+        
+        return roba;
+        
+    }
+    
     private static void handleRequest(Socket clientSocket) throws Exception {
         InputStream input = clientSocket.getInputStream();
         OutputStream output = clientSocket.getOutputStream();
@@ -93,6 +84,7 @@ public class AuctionsLabHttpServer {
                 String path = tokens[1];
 
                 String body = parseRequestBody(reader);
+                
                 System.out.println(line + " body:{" + body + "}");
                 if (method.equalsIgnoreCase("GET")) {
                     handleGet(path, output);
@@ -124,9 +116,7 @@ public class AuctionsLabHttpServer {
                     "\r\n";
             output.write(headers.getBytes());
             output.write(response.getBytes());
-        }
-
-        else {
+        } else {
             sendNotFound(output);
         }
     }
@@ -143,10 +133,10 @@ public class AuctionsLabHttpServer {
             output.write(response.getBytes());
         } else if (path.equals("/getbyname")) {
             String query = "";
-            if(isNumeric(body)){
-                query = "Select * from items where ItemID ="+body;
-            }else{
-                query = "Select * from items where Item_Name like '%"+body+"%'";
+            if (isNumeric(body)) {
+                query = "Select * from items where ItemID =" + body;
+            } else {
+                query = "Select * from items where Item_Name like '%" + body + "%'";
             }
             ResultSet rs = statement.executeQuery(query);
             String response = "{\"message\": \"" + parseResultSet(rs).toString() + "\"}";
@@ -158,7 +148,7 @@ public class AuctionsLabHttpServer {
             output.write(headers.getBytes());
             output.write(response.getBytes());
         } else if (path.equals("/offerPage")) {
-            if (!body.isEmpty()) {
+            if (!body.isEmpty() && isNumeric(body)) {
                 ResultSet rs = statement.executeQuery("Select * from items where ItemID = " + body);
                 String response = "{\"message\": \"" + parseResultSet(rs).toString() + "\"}";
                 String headers = "HTTP/1.1 200 OK\r\n" +
@@ -242,30 +232,7 @@ public class AuctionsLabHttpServer {
         return result;
     }
 
-    private static void amogus() {
-        System.out.println("-----------------⣠⣤⣤⣤⣤⣤⣤⣤⣤⣄⡀---------");
-        System.out.println("-------------⢀⣴⣿⡿⠛⠉⠙⠛⠛⠛⠛⠻⢿⣿⣷⣤--------");
-        System.out.println("-------------⣼⣿⠋-------⢀⣀⣀⠈⢻⣿⣿⡄------");
-        System.out.println("------------⣸⣿⡏---⣠⣶⣾⣿⣿⣿⠿⠿⠿⢿⣿⣿⣿⣄-----");
-        System.out.println("------------⣿⣿⠁--⢰⣿⣿⣯⠁-------⠈⠙⢿⣷⡄---");
-        System.out.println("------⣀⣤⣴⣶⣶⣿⡟---⢸⣿⣿⣿⣆----------⣿⣷----");
-        System.out.println("-----⢰⣿⡟⠋⠉⣹⣿⡇---⠘⣿⣿⣿⣿⣷⣦⣤⣤⣤⣶⣶⣶⣶⣿??----");
-        System.out.println("-----⢸⣿⡇--⣿⣿⡇----⠹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿??----");
-        System.out.println("-----⣸⣿⡇--⣿⣿⡇-----⠉⠻⠿⣿⣿⣿⣿⡿⠿⠿⠛⢻???----");
-        System.out.println("-----⣿⣿⠁--⣿⣿⡇-----------------⢸⣿⣧----");
-        System.out.println("-----⣿⣿---⣿⣿⡇-----------------⢸⣿⣿----");
-        System.out.println("-----⣿⣿---⣿⣿⡇-----------------⢸⣿⣿----");
-        System.out.println("-----⢿⣿⡆--⣿⣿⡇-----------------⢸⣿⡇----");
-        System.out.println("-----⠸⣿⣧⡀-⣿⣿⡇-----------------⣿⣿⠃----");
-        System.out.println("------⠛⢿⣿⣿⣿⣿⣇-----⣰⣿⣿⣷⣶⣶⣶⣶⢠⣿⣿????----");
-        System.out.println("------------⣿⣿------⣿⣿⡇-⣽⣿⡏--⢸⣿?-----");
-        System.out.println("------------⣿⣿------⣿⣿⡇-⢹⣿⡆---⣸⣿⠇----");
-        System.out.println("------------⢿⣿⣦⣄⣀⣠⣴⣿⣿⠁--⠻⣿⣿⣿⣿⡿??-----");
-        System.out.println("------------⠈⠛⠻⠿⠿⠿⠿⠋⠁----------------");
-
-    }
-
-    public static boolean isNumeric(String strNum) {
+    private static boolean isNumeric(String strNum) {
         if (strNum == null) {
             return false;
         }
@@ -276,5 +243,4 @@ public class AuctionsLabHttpServer {
         }
         return true;
     }
-    
 }
